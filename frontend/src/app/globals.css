@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+body { font-family: 'Inter', sans-serif; }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #0a0a15; }
+::-webkit-scrollbar-thumb { background: #6c5ce7; border-radius: 3px; }
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(108,92,231,0.1); }
+  50% { box-shadow: 0 0 40px rgba(108,92,231,0.25); }
+}
+.animate-pulse-glow { animation: pulse-glow 3s ease-in-out infinite; }
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up { animation: slide-up 0.4s ease forwards; }
+
+.glass { background: rgba(13,13,26,0.8); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.05); }
+.card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; transition: all 0.3s; }
+.card:hover { border-color: rgba(108,92,231,0.2); transform: translateY(-2px); }

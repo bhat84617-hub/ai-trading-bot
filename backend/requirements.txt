@@ -1,0 +1,20 @@
+fastapi
+uvicorn
+sqlalchemy
+asyncpg
+httpx
+websockets
+pydantic
+pydantic-settings
+numpy
+pandas
+ta
+openai
+python-dotenv
+python-telegram-bot
+apscheduler
+ccxt
+loguru
+# Vercel deployment
+vercel
+ASGI

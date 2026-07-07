@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://ai-trading-bot-backend-9eyn.onrender.com'
 
 async function request(path: string, options?: RequestInit) {
   const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
@@ -27,21 +27,16 @@ export const api = {
   getWatchlist: () => request('/api/watchlist'),
   addToWatchlist: (symbol: string, timeframe = '1h') =>
     request('/api/watchlist', { method: 'POST', body: JSON.stringify({ symbol, timeframe }) }),
-  removeFromWatchlist: (id: string) =>
-    request(`/api/watchlist/${id}`, { method: 'DELETE' }),
+  removeFromWatchlist: (id: string) => request(`/api/watchlist/${id}`, { method: 'DELETE' }),
   scan: () => request('/api/scan', { method: 'POST' }),
   getSignals: (limit = 20, status?: string) =>
     request(`/api/signals?limit=${limit}${status ? `&status=${status}` : ''}`),
   approveSignal: (id: string, action: 'approve' | 'reject') =>
-    request(`/api/signals/${id}/approve?token=${localStorage.getItem('auth_token')}`, {
-      method: 'POST', body: JSON.stringify({ action }),
-    }),
+    request(`/api/signals/${id}/approve`, { method: 'POST', body: JSON.stringify({ action }) }),
   getTrades: (limit = 20, status?: string) =>
     request(`/api/trades?limit=${limit}${status ? `&status=${status}` : ''}`),
   closeTrade: (id: string, exitPrice?: number) =>
-    request(`/api/trades/${id}/close?token=${localStorage.getItem('auth_token')}`, {
-      method: 'POST', body: JSON.stringify({ exit_price: exitPrice }),
-    }),
+    request(`/api/trades/${id}/close`, { method: 'POST', body: JSON.stringify({ exit_price: exitPrice }) }),
   getPortfolio: () => request('/api/portfolio'),
   getPnL: () => request('/api/pnl'),
   getDashboard: () => request('/api/dashboard'),

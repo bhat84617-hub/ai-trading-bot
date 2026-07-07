@@ -1,8 +1,13 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from .config import settings
+from loguru import logger
 
-engine = create_async_engine(settings.DATABASE_URL, echo=settings.DEBUG, pool_size=20, max_overflow=10)
+DB_URL = settings.DATABASE_URL or ""
+if "postgresql" not in DB_URL:
+    DB_URL = "sqlite+aiosqlite:///./trading_bot.db"
+
+engine = create_async_engine(DB_URL, echo=settings.DEBUG)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 class Base(DeclarativeBase):
@@ -20,8 +25,11 @@ async def get_db():
             await session.close()
 
 async def init_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        logger.warning(f"DB init: {e}")
 
 async def close_db():
     await engine.dispose()

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query, Header
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
@@ -40,8 +40,13 @@ def verify_token(token: str) -> Optional[dict]:
     except:
         return None
 
-async def get_current_user(token: str = Query(...), db: AsyncSession = Depends(get_db)) -> User:
-    payload = verify_token(token)
+async def get_current_user(authorization: str = Header(None), token: str = Query(None), db: AsyncSession = Depends(get_db)) -> User:
+    auth = token or authorization
+    if auth and auth.startswith("Bearer "):
+        auth = auth[7:]
+    if not auth:
+        raise HTTPException(401, "No authorization token")
+    payload = verify_token(auth)
     if not payload:
         raise HTTPException(401, "Invalid token")
     result = await db.execute(select(User).where(User.id == payload["sub"]))
@@ -138,15 +143,12 @@ async def approve_signal(signal_id: str, data: TradeApproval, user: User = Depen
     signal = result.scalar_one_or_none()
     if not signal:
         raise HTTPException(404, "Signal not found")
-
     if data.action == "reject":
         signal.status = TradeStatus.REJECTED
         await db.commit()
         return MessageResponse(message="Signal rejected")
-
     signal.status = TradeStatus.APPROVED
     await db.commit()
-
     account_balance = await broker_service.get_account_balance()
     local_rm = RiskManager({
         "max_risk_per_trade": user.max_risk_per_trade,
@@ -156,10 +158,7 @@ async def approve_signal(signal_id: str, data: TradeApproval, user: User = Depen
         "min_confidence_score": user.min_confidence_score,
         "min_risk_reward": user.min_risk_reward,
     })
-    quantity, actual_risk = local_rm.calculate_position_size(
-        account_balance, signal.entry_price, signal.stop_loss, signal.risk_percentage
-    )
-
+    quantity, actual_risk = local_rm.calculate_position_size(account_balance, signal.entry_price, signal.stop_loss, signal.risk_percentage)
     if user.trade_mode == TradeMode.LIVE:
         side = "sell" if signal.direction == SignalDirection.SHORT else "buy"
         order = await broker_service.place_market_order(signal.symbol, side, quantity)
@@ -168,24 +167,10 @@ async def approve_signal(signal_id: str, data: TradeApproval, user: User = Depen
     else:
         order_id = f"paper_{uuid.uuid4()}"
         broker_resp = {"mode": "paper", "order_id": order_id}
-
-    trade = Trade(
-        user_id=user.id, signal_id=signal.id, symbol=signal.symbol,
-        direction=signal.direction, entry_price=signal.entry_price,
-        quantity=quantity, stop_loss=signal.stop_loss, take_profit=signal.take_profit,
-        status=TradeStatus.OPEN, risk_percentage=actual_risk,
-        risk_reward_ratio=signal.risk_reward_ratio, confidence_score=signal.confidence_score,
-        ai_reasoning=signal.trade_explanation, broker_order_id=order_id,
-        broker_response=broker_resp, trade_mode=user.trade_mode, entry_time=datetime.utcnow()
-    )
+    trade = Trade(user_id=user.id, signal_id=signal.id, symbol=signal.symbol, direction=signal.direction, entry_price=signal.entry_price, quantity=quantity, stop_loss=signal.stop_loss, take_profit=signal.take_profit, status=TradeStatus.OPEN, risk_percentage=actual_risk, risk_reward_ratio=signal.risk_reward_ratio, confidence_score=signal.confidence_score, ai_reasoning=signal.trade_explanation, broker_order_id=order_id, broker_response=broker_resp, trade_mode=user.trade_mode, entry_time=datetime.utcnow())
     db.add(trade)
     await db.commit()
-
-    await notifier.notify_trade_execution({
-        "symbol": signal.symbol, "direction": signal.direction.value,
-        "entry_price": signal.entry_price, "quantity": quantity, "order_id": order_id
-    })
-
+    await notifier.notify_trade_execution({"symbol": signal.symbol, "direction": signal.direction.value, "entry_price": signal.entry_price, "quantity": quantity, "order_id": order_id})
     return MessageResponse(message=f"Trade executed in {user.trade_mode.value} mode")
 
 @router.get("/api/trades", response_model=List[TradeResponse])
@@ -205,13 +190,11 @@ async def close_trade(trade_id: str, exit_price: Optional[float] = None, user: U
         raise HTTPException(404, "Trade not found")
     if trade.status != TradeStatus.OPEN:
         raise HTTPException(400, "Trade is not open")
-
     if exit_price:
         trade.exit_price = exit_price
     else:
         price = await market_data_service.get_current_price(trade.symbol)
         trade.exit_price = price or trade.entry_price
-
     if trade.direction == SignalDirection.LONG:
         trade.pnl = (trade.exit_price - trade.entry_price) * trade.quantity
     else:
@@ -220,13 +203,7 @@ async def close_trade(trade_id: str, exit_price: Optional[float] = None, user: U
     trade.status = TradeStatus.CLOSED
     trade.exit_time = datetime.utcnow()
     await db.commit()
-
-    await notifier.notify_trade_result({
-        "symbol": trade.symbol, "direction": trade.direction.value,
-        "entry_price": trade.entry_price, "exit_price": trade.exit_price,
-        "pnl": trade.pnl, "pnl_percentage": trade.pnl_percentage
-    })
-
+    await notifier.notify_trade_result({"symbol": trade.symbol, "direction": trade.direction.value, "entry_price": trade.entry_price, "exit_price": trade.exit_price, "pnl": trade.pnl, "pnl_percentage": trade.pnl_percentage})
     return MessageResponse(message=f"Trade closed. PnL: {trade.pnl:.2f}")
 
 @router.get("/api/portfolio", response_model=List[PortfolioResponse])
@@ -236,100 +213,28 @@ async def get_portfolio(user: User = Depends(get_current_user), db: AsyncSession
 
 @router.get("/api/pnl", response_model=PnLSummaryResponse)
 async def get_pnl(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(func.sum(Trade.pnl)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED)
-    )
-    total_pnl = result.scalar() or 0
-
-    today_start = datetime.combine(date.today(), datetime.min.time())
-    result = await db.execute(
-        select(func.sum(Trade.pnl)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED, Trade.exit_time >= today_start)
-    )
-    daily_pnl = result.scalar() or 0
-
-    result = await db.execute(
-        select(func.count(Trade.id)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED)
-    )
-    total_trades = result.scalar() or 0
-
-    result = await db.execute(
-        select(func.count(Trade.id)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED, Trade.pnl > 0)
-    )
-    winning = result.scalar() or 0
-
-    result = await db.execute(
-        select(func.count(Trade.id)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED, Trade.pnl < 0)
-    )
-    losing = result.scalar() or 0
-
-    result = await db.execute(
-        select(func.max(Trade.pnl)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED)
-    )
-    largest_win = result.scalar() or 0
-    result = await db.execute(
-        select(func.min(Trade.pnl)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED)
-    )
-    largest_loss = result.scalar() or 0
-
+    total_pnl = (await db.execute(select(func.sum(Trade.pnl)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED))).scalar() or 0
+    daily_pnl = (await db.execute(select(func.sum(Trade.pnl)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED, Trade.exit_time >= datetime.combine(date.today(), datetime.min.time())))).scalar() or 0
+    total_trades = (await db.execute(select(func.count(Trade.id)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED))).scalar() or 0
+    winning = (await db.execute(select(func.count(Trade.id)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED, Trade.pnl > 0))).scalar() or 0
+    losing = (await db.execute(select(func.count(Trade.id)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED, Trade.pnl < 0))).scalar() or 0
     win_rate = (winning / total_trades * 100) if total_trades > 0 else 0
-
-    return PnLSummaryResponse(
-        daily_pnl=float(daily_pnl), total_pnl=float(total_pnl), win_rate=round(win_rate, 1),
-        total_trades=total_trades, winning_trades=winning, losing_trades=losing
-    )
+    return PnLSummaryResponse(daily_pnl=float(daily_pnl), total_pnl=float(total_pnl), win_rate=round(win_rate, 1), total_trades=total_trades, winning_trades=winning, losing_trades=losing)
 
 @router.get("/api/dashboard", response_model=DashboardResponse)
 async def get_dashboard(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    pnl_result = await db.execute(
-        select(func.sum(Trade.pnl)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED)
-    )
-    total_pnl = float(pnl_result.scalar() or 0)
-
-    today_start = datetime.combine(date.today(), datetime.min.time())
-    daily_result = await db.execute(
-        select(func.sum(Trade.pnl)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED, Trade.exit_time >= today_start)
-    )
-    daily_pnl = float(daily_result.scalar() or 0)
-
-    win_result = await db.execute(
-        select(func.count(Trade.id)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED)
-    )
-    total_trades = win_result.scalar() or 0
-    win_count = await db.execute(
-        select(func.count(Trade.id)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED, Trade.pnl > 0)
-    )
-    win_rate = round((win_count.scalar() or 0) / total_trades * 100, 1) if total_trades > 0 else 0
-
-    open_pos = await db.execute(
-        select(func.count(Trade.id)).where(Trade.user_id == user.id, Trade.status == TradeStatus.OPEN)
-    )
-    open_count = open_pos.scalar() or 0
-
-    active_sig = await db.execute(
-        select(func.count(Signal.id)).where(Signal.user_id == user.id, Signal.status == TradeStatus.PENDING)
-    )
-    active_sig_count = active_sig.scalar() or 0
-
+    total_pnl = float((await db.execute(select(func.sum(Trade.pnl)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED))).scalar() or 0)
+    daily_pnl = float((await db.execute(select(func.sum(Trade.pnl)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED, Trade.exit_time >= datetime.combine(date.today(), datetime.min.time()))).scalar() or 0))
+    total_trades = (await db.execute(select(func.count(Trade.id)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED))).scalar() or 0
+    wins = (await db.execute(select(func.count(Trade.id)).where(Trade.user_id == user.id, Trade.status == TradeStatus.CLOSED, Trade.pnl > 0))).scalar() or 0
+    win_rate = round(wins / total_trades * 100, 1) if total_trades > 0 else 0
+    open_count = (await db.execute(select(func.count(Trade.id)).where(Trade.user_id == user.id, Trade.status == TradeStatus.OPEN))).scalar() or 0
+    active_sig_count = (await db.execute(select(func.count(Signal.id)).where(Signal.user_id == user.id, Signal.status == TradeStatus.PENDING))).scalar() or 0
     balance = await broker_service.get_account_balance()
-
-    recent_trades = await db.execute(
-        select(Trade).where(Trade.user_id == user.id).order_by(desc(Trade.created_at)).limit(5)
-    )
-    recent_signals = await db.execute(
-        select(Signal).where(Signal.user_id == user.id).order_by(desc(Signal.created_at)).limit(5)
-    )
-    watchlist_items = await db.execute(
-        select(Watchlist).where(Watchlist.user_id == user.id).order_by(Watchlist.created_at)
-    )
-
-    return DashboardResponse(
-        total_pnl=total_pnl, daily_pnl=daily_pnl, win_rate=win_rate,
-        open_positions=open_count, total_trades=total_trades,
-        active_signals=active_sig_count, portfolio_value=balance,
-        recent_trades=[TradeResponse.model_validate(t) for t in recent_trades.scalars().all()],
-        recent_signals=[SignalResponse.model_validate(s) for s in recent_signals.scalars().all()],
-        watchlist=[WatchlistResponse.model_validate(w) for w in watchlist_items.scalars().all()]
-    )
+    trades = (await db.execute(select(Trade).where(Trade.user_id == user.id).order_by(desc(Trade.created_at)).limit(5))).scalars().all()
+    signals = (await db.execute(select(Signal).where(Signal.user_id == user.id).order_by(desc(Signal.created_at)).limit(5))).scalars().all()
+    watchlist = (await db.execute(select(Watchlist).where(Watchlist.user_id == user.id).order_by(Watchlist.created_at))).scalars().all()
+    return DashboardResponse(total_pnl=total_pnl, daily_pnl=daily_pnl, win_rate=win_rate, open_positions=open_count, total_trades=total_trades, active_signals=active_sig_count, portfolio_value=balance, recent_trades=[TradeResponse.model_validate(t) for t in trades], recent_signals=[SignalResponse.model_validate(s) for s in signals], watchlist=[WatchlistResponse.model_validate(w) for w in watchlist])
 
 @router.post("/api/ai/analyze", response_model=AIAnalysisResponse)
 async def ai_analyze(data: AIAnalysisRequest, user: User = Depends(get_current_user)):
@@ -342,37 +247,22 @@ async def ai_analyze(data: AIAnalysisRequest, user: User = Depends(get_current_u
     result = await ai_service.analyze_signal(data.symbol, indicators)
     if not result:
         raise HTTPException(400, "AI analysis failed")
-    return AIAnalysisResponse(
-        symbol=data.symbol, direction=SignalDirection(result["direction"]),
-        entry_price=result["entry_price"], stop_loss=result["stop_loss"],
-        take_profit=result["take_profit"], confidence_score=result["confidence_score"],
-        risk_reward_ratio=result["risk_reward_ratio"], risk_percentage=result["risk_percentage"],
-        reason=result["reason"], trade_explanation=result["trade_explanation"],
-        news_sentiment=result.get("news_sentiment", "neutral"),
-        market_context=result.get("market_context", ""), indicators_data=indicators
-    )
+    return AIAnalysisResponse(symbol=data.symbol, direction=SignalDirection(result["direction"]), entry_price=result["entry_price"], stop_loss=result["stop_loss"], take_profit=result["take_profit"], confidence_score=result["confidence_score"], risk_reward_ratio=result["risk_reward_ratio"], risk_percentage=result["risk_percentage"], reason=result["reason"], trade_explanation=result["trade_explanation"], news_sentiment=result.get("news_sentiment", "neutral"), market_context=result.get("market_context", ""), indicators_data=indicators)
 
-@router.websocket("/ws/{user_id}")
-async def websocket_endpoint(websocket: WebSocket, user_id: str):
-    await websocket.accept()
-    pubsub = await redis_client.subscribe("signals")
-    if not pubsub:
-        await websocket.send_json({"error": "Redis unavailable"})
-        await websocket.close()
-        return
-    try:
-        while True:
-            message = await pubsub.get_message(timeout=1)
-            if message and message["type"] == "message":
-                data = json.loads(message["data"])
-                await websocket.send_json(data)
-            try:
-                control = await asyncio.wait_for(websocket.receive_text(), timeout=0.1)
-                if control == "ping":
-                    await websocket.send_text("pong")
-            except asyncio.TimeoutError:
-                pass
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected: {user_id}")
-    finally:
-        await pubsub.unsubscribe("signals")
+@router.post("/api/broker/switch")
+async def switch_broker(data: dict, user: User = Depends(get_current_user)):
+    broker = data.get("broker", "binance")
+    await broker_service.switch_broker(broker)
+    return {"message": f"Switched to {broker}", "broker": broker, "success": True}
+
+@router.get("/api/broker/list")
+async def broker_list(user: User = Depends(get_current_user)):
+    return {"brokers": [
+        {"id":"binance","label":"Binance","type":"crypto"}, {"id":"bybit","label":"Bybit","type":"crypto"},
+        {"id":"okx","label":"OKX","type":"crypto"}, {"id":"kucoin","label":"KuCoin","type":"crypto"},
+        {"id":"kraken","label":"Kraken","type":"crypto"}, {"id":"coinbase","label":"Coinbase","type":"crypto"},
+        {"id":"gateio","label":"Gate.io","type":"crypto"}, {"id":"bitget","label":"Bitget","type":"crypto"},
+        {"id":"mexc","label":"MEXC","type":"crypto"}, {"id":"coindcx","label":"CoinDCX","type":"crypto"},
+        {"id":"alpaca","label":"Alpaca","type":"stocks"}, {"id":"dhan","label":"Dhan (India)","type":"stocks"},
+        {"id":"oanda","label":"OANDA","type":"forex"}, {"id":"octafx","label":"OctaFX","type":"forex"},
+    ]}

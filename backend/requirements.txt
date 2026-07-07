@@ -16,5 +16,3 @@ apscheduler
 ccxt
 loguru
 # Vercel deployment
-vercel
-ASGI

@@ -5,26 +5,30 @@ from ..core.config import settings
 from ..core.redis_client import redis_client
 from .market_data import market_data_service
 
-# 100+ broker support — user sirf naam change kare
-SUPPORTED_EXCHANGES = {
-    # Crypto — International
-    'binance': ccxt.binance, 'bybit': ccxt.bybit, 'okx': ccxt.okx,
-    'kucoin': ccxt.kucoin, 'kraken': ccxt.kraken, 'coinbase': ccxt.coinbase,
-    'gateio': ccxt.gateio, 'bitget': ccxt.bitget, 'mexc': ccxt.mexc,
-    'huobi': ccxt.huobi, 'bitfinex': ccxt.bitfinex, 'cryptocom': ccxt.cryptocom,
-    'gemini': ccxt.gemini, 'bitmart': ccxt.bitmart, 'lbank': ccxt.lbank,
-    'poloniex': ccxt.poloniex, 'ascendex': ccxt.ascendex,
-    # Crypto — India
-    'coindcx': ccxt.coindcx,
-    # Stocks — US
-    'alpaca': ccxt.alpaca, 'tradier': ccxt.tradier,
-    # Stocks — India (custom connectors)
-    'dhan': 'custom_dhan',
-    # Forex
-    'oanda': ccxt.oanda,
-    'octafx': 'custom_octafx',
+_EXCHANGE_IDS = {
+    'binance': 'binance', 'bybit': 'bybit', 'okx': 'okx',
+    'kucoin': 'kucoin', 'kraken': 'kraken', 'coinbase': 'coinbase',
+    'gateio': 'gate',   # gateio ka CCXT naam `gate` hai
+    'gate': 'gate',
+    'bitget': 'bitget', 'mexc': 'mexc', 'huobi': 'huobi',
+    'bitfinex': 'bitfinex', 'cryptocom': 'cryptocom',
+    'gemini': 'gemini', 'bitmart': 'bitmart', 'lbank': 'lbank',
+    'poloniex': 'poloniex', 'ascendex': 'ascendex',
+    'coindcx': 'coindcx',
+    'alpaca': 'alpaca', 'tradier': 'tradier',
+    'oanda': 'oanda',
 }
 
+SUPPORTED_EXCHANGES = {}
+for name, ccxt_name in _EXCHANGE_IDS.items():
+    try:
+        cls = getattr(ccxt, ccxt_name)
+        SUPPORTED_EXCHANGES[name] = cls
+    except AttributeError:
+        pass
+
+SUPPORTED_EXCHANGES['dhan'] = 'custom_dhan'
+SUPPORTED_EXCHANGES['octafx'] = 'custom_octafx'
 
 
 class BrokerService:
@@ -34,7 +38,6 @@ class BrokerService:
         self._broker_name = settings.BROKER_NAME
 
     async def switch_broker(self, broker_name: str):
-        """User kisi bhi broker par switch kar sakta hai runtime mein"""
         self._broker_name = broker_name.lower()
         self.exchange = None
         logger.info(f"Switched broker to {broker_name}")
@@ -43,45 +46,22 @@ class BrokerService:
         name = (broker_name or self._broker_name).lower()
         entry = SUPPORTED_EXCHANGES.get(name)
 
-        # Custom broker (Dhan, OctaFX)
         if entry and isinstance(entry, str) and entry.startswith('custom_'):
             from .brokers import DhanBroker, OctaFXBroker
             if entry == 'custom_dhan':
-                return DhanBroker(
-                    client_id=settings.BROKER_API_KEY or "dhan_client_id",
-                    access_token=settings.BROKER_SECRET_KEY or "dhan_token",
-                    is_paper=not self.is_live
-                )
+                return DhanBroker(client_id=settings.BROKER_API_KEY or "dhan_client_id", access_token=settings.BROKER_SECRET_KEY or "dhan_token", is_paper=not self.is_live)
             elif entry == 'custom_octafx':
-                return OctaFXBroker(
-                    api_key=settings.BROKER_API_KEY or "octafx_key",
-                    account_id=settings.BROKER_SECRET_KEY or "octafx_account",
-                    is_paper=not self.is_live
-                )
+                return OctaFXBroker(api_key=settings.BROKER_API_KEY or "octafx_key", account_id=settings.BROKER_SECRET_KEY or "octafx_account", is_paper=not self.is_live)
 
-        # CCXT-based broker
         exchange_class = entry if entry else ccxt.binance
 
         if self.is_live:
-            self.exchange = exchange_class({
-                'apiKey': settings.BROKER_API_KEY,
-                'secret': settings.BROKER_SECRET_KEY,
-                'enableRateLimit': True,
-            })
+            self.exchange = exchange_class({'apiKey': settings.BROKER_API_KEY, 'secret': settings.BROKER_SECRET_KEY, 'enableRateLimit': True})
         else:
+            kwargs = {'apiKey': settings.BROKER_PAPER_KEY, 'secret': settings.BROKER_PAPER_SECRET, 'enableRateLimit': True}
             if hasattr(exchange_class, 'sandbox'):
-                self.exchange = exchange_class({
-                    'apiKey': settings.BROKER_PAPER_KEY,
-                    'secret': settings.BROKER_PAPER_SECRET,
-                    'enableRateLimit': True,
-                    'sandbox': True,
-                })
-            else:
-                self.exchange = exchange_class({
-                    'apiKey': settings.BROKER_PAPER_KEY,
-                    'secret': settings.BROKER_PAPER_SECRET,
-                    'enableRateLimit': True,
-                })
+                kwargs['sandbox'] = True
+            self.exchange = exchange_class(kwargs)
         return self.exchange
 
     async def get_account_balance(self) -> float:
@@ -107,25 +87,14 @@ class BrokerService:
             logger.error(f"Failed to get balance: {e}")
             return 100000.0
 
-    async def place_order(self, symbol: str, side: str, order_type: str, amount: float,
-                          price: Optional[float] = None, params: Optional[Dict] = None) -> Optional[Dict]:
+    async def place_order(self, symbol: str, side: str, order_type: str, amount: float, price: Optional[float] = None, params: Optional[Dict] = None) -> Optional[Dict]:
         try:
             exchange = await self._get_exchange()
             if params is None:
                 params = {}
             order = await exchange.create_order(symbol, order_type, side, amount, price, params)
             logger.info(f"Order placed: {side} {amount} {symbol} @ {price}")
-            return {
-                'id': order.get('id', ''),
-                'symbol': order.get('symbol', symbol),
-                'side': order.get('side', side),
-                'amount': order.get('amount', amount),
-                'price': order.get('price', price),
-                'status': order.get('status', 'open'),
-                'filled': order.get('filled', 0),
-                'remaining': order.get('remaining', amount),
-                'timestamp': order.get('timestamp')
-            }
+            return {'id': order.get('id', ''), 'symbol': order.get('symbol', symbol), 'side': order.get('side', side), 'amount': order.get('amount', amount), 'price': order.get('price', price), 'status': order.get('status', 'open'), 'filled': order.get('filled', 0), 'remaining': order.get('remaining', amount), 'timestamp': order.get('timestamp')}
         except Exception as e:
             logger.error(f"Order failed: {e}")
             return None
@@ -146,7 +115,6 @@ class BrokerService:
         try:
             exchange = await self._get_exchange()
             await exchange.cancel_order(order_id, symbol)
-            logger.info(f"Order {order_id} cancelled")
             return True
         except Exception as e:
             logger.error(f"Failed to cancel order {order_id}: {e}")
@@ -156,11 +124,7 @@ class BrokerService:
         try:
             exchange = await self._get_exchange()
             orders = await exchange.fetch_open_orders(symbol)
-            return [{
-                'id': o['id'], 'symbol': o['symbol'], 'side': o['side'],
-                'amount': o['amount'], 'price': o['price'], 'status': o['status'],
-                'timestamp': o['timestamp']
-            } for o in orders]
+            return [{'id': o['id'], 'symbol': o['symbol'], 'side': o['side'], 'amount': o['amount'], 'price': o['price'], 'status': o['status'], 'timestamp': o['timestamp']} for o in orders]
         except Exception as e:
             logger.error(f"Failed to fetch open orders: {e}")
             return []
@@ -169,12 +133,7 @@ class BrokerService:
         try:
             exchange = await self._get_exchange()
             positions = await exchange.fetch_positions()
-            return [{
-                'symbol': p['symbol'], 'side': 'long' if p['side'] == 'long' else 'short',
-                'contracts': p['contracts'], 'entry_price': p['entryPrice'],
-                'current_price': p['currentPrice'], 'pnl': p['pnl'],
-                'percentage': p['percentage']
-            } for p in positions if p['contracts'] > 0]
+            return [{'symbol': p['symbol'], 'side': 'long' if p['side'] == 'long' else 'short', 'contracts': p['contracts'], 'entry_price': p['entryPrice'], 'current_price': p['currentPrice'], 'pnl': p['pnl'], 'percentage': p['percentage']} for p in positions if p['contracts'] > 0]
         except:
             return []
 
@@ -182,11 +141,7 @@ class BrokerService:
         try:
             exchange = await self._get_exchange()
             order = await exchange.fetch_order(order_id, symbol)
-            return {
-                'id': order['id'], 'status': order['status'],
-                'filled': order['filled'], 'remaining': order['remaining'],
-                'price': order['price']
-            }
+            return {'id': order['id'], 'status': order['status'], 'filled': order['filled'], 'remaining': order['remaining'], 'price': order['price']}
         except Exception as e:
             logger.error(f"Failed to check order {order_id}: {e}")
             return None

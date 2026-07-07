@@ -15,4 +15,4 @@ loguru
 python-multipart
 cryptography
 pyjwt
-
+psycopg2-binary

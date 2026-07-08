@@ -54,3 +54,5 @@ export const api = {
   setRiskyMode: (data: { enabled: boolean; duration_minutes?: number; min_confidence_score?: number; min_risk_reward?: number; max_risk_per_trade?: number; max_daily_loss?: number; max_drawdown?: number }) =>
     request('/api/risk/risky-mode', { method: 'POST', body: JSON.stringify(data) }),
 }
+  getCandles: (symbol: string, timeframe = '1h', limit = 100) =>
+    request(`/api/market/candles/${symbol}?timeframe=${timeframe}&limit=${limit}`),

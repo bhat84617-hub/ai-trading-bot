@@ -465,3 +465,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
         logger.info(f"WebSocket disconnected: {user_id}")
     finally:
         await pubsub.unsubscribe("signals")
+@router.get("/health")
+async def health_check():
+    return {"status": "ok", "version": "1.0.0"}

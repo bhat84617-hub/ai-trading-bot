@@ -165,3 +165,20 @@ async def broker_list(user: User = Depends(get_current_user)):
         {"id":"oanda","label":"OANDA","type":"forex"},
         {"id":"octafx","label":"OctaFX","type":"forex"},
     ]}
+@router.get("/api/market/candles/{symbol}")
+async def get_market_candles(symbol: str, timeframe: str = "1h", limit: int = 100, user: User = Depends(get_current_user)):
+    from ..services.market_data import market_data_service
+    df = await market_data_service.fetch_ohlcv(symbol, timeframe, limit)
+    if df.empty:
+        return {"symbol": symbol, "timeframe": timeframe, "candles": [], "error": "No data available"}
+    candles = []
+    for idx, row in df.iterrows():
+        candles.append({
+            "timestamp": int(idx.timestamp() * 1000),
+            "open": round(float(row["open"]), 2),
+            "high": round(float(row["high"]), 2),
+            "low": round(float(row["low"]), 2),
+            "close": round(float(row["close"]), 2),
+            "volume": float(row["volume"])
+        })
+    return {"symbol": symbol, "timeframe": timeframe, "candles": candles}

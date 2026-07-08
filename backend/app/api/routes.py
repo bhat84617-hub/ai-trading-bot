@@ -141,3 +141,27 @@ async def get_pnl(user: User = Depends(get_current_user), db: AsyncSession = Dep
 @router.get("/api/watchlist", response_model=List[WatchlistResponse])
 async def get_watchlist(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     return [WatchlistResponse.model_validate(w) for w in (await db.execute(select(Watchlist).where(Watchlist.user_id == user.id).order_by(Watchlist.created_at))).scalars().all()]
+@router.post("/api/broker/switch")
+async def switch_broker(data: dict, user: User = Depends(get_current_user)):
+    broker = data.get("broker", "binance")
+    await broker_service.switch_broker(broker)
+    return {"message": f"Switched to {broker}", "broker": broker, "success": True}
+
+@router.get("/api/broker/list")
+async def broker_list(user: User = Depends(get_current_user)):
+    return {"brokers": [
+        {"id":"binance","label":"Binance","type":"crypto"},
+        {"id":"bybit","label":"Bybit","type":"crypto"},
+        {"id":"okx","label":"OKX","type":"crypto"},
+        {"id":"kucoin","label":"KuCoin","type":"crypto"},
+        {"id":"kraken","label":"Kraken","type":"crypto"},
+        {"id":"coinbase","label":"Coinbase","type":"crypto"},
+        {"id":"gateio","label":"Gate.io","type":"crypto"},
+        {"id":"bitget","label":"Bitget","type":"crypto"},
+        {"id":"mexc","label":"MEXC","type":"crypto"},
+        {"id":"coindcx","label":"CoinDCX","type":"crypto"},
+        {"id":"alpaca","label":"Alpaca","type":"stocks"},
+        {"id":"dhan","label":"Dhan (India)","type":"stocks"},
+        {"id":"oanda","label":"OANDA","type":"forex"},
+        {"id":"octafx","label":"OctaFX","type":"forex"},
+    ]}

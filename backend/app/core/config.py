@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     # for a new setup — flip to true once you trust the strategy).
     AUTO_EXECUTE: bool = os.getenv("AUTO_EXECUTE", "true").lower() == "true"
 
+    # Free-tier deployments (Render free plan has no Background Worker option)
+    # trigger scans via an external scheduler (e.g. GitHub Actions) hitting
+    # /api/cron/scan-all instead of an always-running worker process.
+    CRON_SECRET: Optional[str] = os.getenv("CRON_SECRET")
+
     JWT_SECRET: str = os.getenv("JWT_SECRET", "super-secret-key-change-in-production")
     ENCRYPTION_KEY: str = os.getenv("ENCRYPTION_KEY", "encryption-key-32-chars-long!")
 

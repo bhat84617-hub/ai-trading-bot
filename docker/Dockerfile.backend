@@ -9,6 +9,10 @@ COPY . .
 
 RUN mkdir -p logs
 
-EXPOSE 8000
+EXPOSE 8080
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Bug fix for Cloud Run / most container platforms: they inject a $PORT env
+# var (Cloud Run defaults to 8080) and expect the container to listen on it,
+# not a hardcoded port. Using shell form so $PORT actually expands; falls
+# back to 8080 if it's not set (e.g. running locally with `docker run`).
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}

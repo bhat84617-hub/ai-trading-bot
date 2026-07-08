@@ -368,6 +368,29 @@ async def set_risky_mode(data: RiskyModeToggle, user: User = Depends(get_current
         max_drawdown=min(user.risky_max_drawdown, ABSOLUTE_MAX_DRAWDOWN),
     )
 
+@router.post("/api/cron/scan-all")
+async def cron_scan_all(secret: str = Query(...), db: AsyncSession = Depends(get_db)):
+    """
+    For free-tier deployments with no Background Worker: an external
+    scheduler (GitHub Actions, cron-job.org, etc) calls this on a timer
+    instead of a persistent worker process. Protected by a shared secret
+    (CRON_SECRET in .env) rather than a user JWT, since a scheduler can't
+    log in interactively.
+    """
+    if not settings.CRON_SECRET or secret != settings.CRON_SECRET:
+        raise HTTPException(403, "Invalid or missing cron secret")
+
+    result = await db.execute(select(User).where(User.is_active == True))
+    users = result.scalars().all()
+    total_signals = 0
+    for u in users:
+        try:
+            signals = await market_scanner.scan_watchlist(str(u.id), db)
+            total_signals += len(signals)
+        except Exception as e:
+            logger.error(f"Cron scan failed for user {u.id}: {e}")
+    return {"scanned_users": len(users), "signals_generated": total_signals}
+
 @router.get("/api/broker/list")
 async def list_brokers(user: User = Depends(get_current_user)):
     from ..services.broker import SUPPORTED_EXCHANGES

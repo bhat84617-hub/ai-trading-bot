@@ -2,7 +2,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useStore } from '@/store/useStore'
 import { api } from '@/lib/api'
-import { BarChart3, TrendingUp, Activity, DollarSign, RefreshCw, Play, XCircle, Loader2, Eye, Zap, Plus, Trash2, Sparkles } from 'lucide-react'
+import { BarChart3, TrendingUp, Activity, DollarSign, RefreshCw, Play, XCircle, Loader2, Eye, Zap, Plus, Trash2, Sparkles, CandlestickChart } from 'lucide-react'
+import TradeChart from './TradeChart'
 
 export default function DashboardPage() {
   const { dashboard, fetchDashboard } = useStore()
@@ -16,6 +17,8 @@ export default function DashboardPage() {
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisSymbol, setAnalysisSymbol] = useState('')
   const [analysisResult, setAnalysisResult] = useState<any>(null)
+  const [chartSymbol, setChartSymbol] = useState<string | null>(null)
+  const [chartTrade, setChartTrade] = useState<any>(null)
 
   const loadData = useCallback(async () => {
     try {
@@ -79,7 +82,6 @@ export default function DashboardPage() {
     <div className="max-w-7xl mx-auto px-3 sm:px-5 py-6">
       <div className="spatial-shell rounded-3xl p-4 sm:p-6">
 
-        {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
           {statCards.map((s, i) => (
             <div key={i} className="card p-4 animate-slide-up" style={{ animationDelay: `${i * 40}ms` }}>
@@ -90,7 +92,6 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        {/* Tabs */}
         <div className="flex gap-2 mb-6 overflow-x-auto">
           {(['watchlist', 'overview', 'signals', 'trades', 'analysis'] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap ${activeTab === tab ? 'bg-accent text-white shadow-sm' : 'bg-black/5 text-ink-500 hover:text-ink-900'}`}>
@@ -98,12 +99,10 @@ export default function DashboardPage() {
             </button>
           ))}
           <button onClick={handleScan} disabled={scanning} className="px-4 py-2 rounded-xl text-sm font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-all ml-auto flex items-center gap-2 whitespace-nowrap">
-            {scanning ? <Loader2 className="animate-spin" size={14} /> : <Zap size={14} />}
-            Scan Now
+            {scanning ? <Loader2 className="animate-spin" size={14} /> : <Zap size={14} />} Scan Now
           </button>
         </div>
 
-        {/* Watchlist Tab — the "just add a symbol" flow */}
         {activeTab === 'watchlist' && (
           <div>
             <div className="card p-5 mb-5">
@@ -111,7 +110,7 @@ export default function DashboardPage() {
                 <Sparkles size={15} className="text-accent" />
                 <h3 className="font-semibold text-ink-900 text-sm">Add a symbol — the bot does the rest</h3>
               </div>
-              <p className="text-xs text-ink-300 mb-4">Stocks (TSLA, AAPL...) route to Alpaca automatically. Crypto pairs (BTC/USDT...) route to your selected exchange. Every symbol here gets scanned, analyzed with live indicators + real news, and auto-traded once a signal clears your risk rules (turn this off with AUTO_EXECUTE=false in the backend .env).</p>
+              <p className="text-xs text-ink-300 mb-4">Stocks (TSLA, AAPL...) route to Alpaca automatically. Crypto pairs (BTC/USDT...) route to your selected exchange.</p>
               <div className="flex gap-3">
                 <input value={newSymbol} onChange={e => setNewSymbol(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddSymbol()}
                   placeholder="e.g. TSLA, AAPL, BTC/USDT" className="flex-1 px-4 py-2.5 glass-input rounded-xl text-sm text-ink-900 outline-none focus:border-accent/50" />
@@ -120,17 +119,13 @@ export default function DashboardPage() {
                 </button>
               </div>
             </div>
-
             <div className="space-y-2">
-              {watchlist.length === 0 && <p className="text-ink-300 text-sm text-center py-8">Watchlist empty — add a symbol above, then hit "Scan Now".</p>}
+              {watchlist.length === 0 && <p className="text-ink-300 text-sm text-center py-8">Watchlist empty — add a symbol above, then hit Scan Now.</p>}
               {watchlist.map((w: any) => (
                 <div key={w.id} className="card p-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <span className="w-9 h-9 rounded-xl bg-accent/10 flex items-center justify-center text-xs font-bold text-accent">{w.symbol.replace('/', '').slice(0, 2)}</span>
-                    <div>
-                      <p className="text-sm font-medium text-ink-900">{w.symbol}</p>
-                      <p className="text-xs text-ink-300">{w.timeframe} timeframe</p>
-                    </div>
+                    <div><p className="text-sm font-medium text-ink-900">{w.symbol}</p><p className="text-xs text-ink-300">{w.timeframe}</p></div>
                   </div>
                   <button onClick={() => handleRemoveSymbol(w.id)} className="p-2 rounded-lg text-ink-300 hover:text-bad hover:bg-bad-bg transition-colors"><Trash2 size={14} /></button>
                 </div>
@@ -139,7 +134,6 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Overview Tab */}
         {activeTab === 'overview' && (
           <div className="grid lg:grid-cols-2 gap-6">
             <div>
@@ -154,7 +148,7 @@ export default function DashboardPage() {
                     <span className={`text-xs font-semibold ${s.confidence_score >= 70 ? 'text-good' : 'text-amber-600'}`}>{s.confidence_score}%</span>
                   </div>
                 ))}
-                {(!dashboard?.recent_signals || dashboard.recent_signals.length === 0) && signals.length === 0 && <p className="text-ink-300 text-sm text-center py-8">No signals yet. Click "Scan Now".</p>}
+                {(!dashboard?.recent_signals || dashboard.recent_signals.length === 0) && signals.length === 0 && <p className="text-ink-300 text-sm text-center py-8">No signals yet. Click Scan Now.</p>}
               </div>
             </div>
             <div>
@@ -175,16 +169,15 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Signals Tab */}
         {activeTab === 'signals' && (
           <div className="space-y-2">
-            {signals.length === 0 ? <p className="text-ink-300 text-sm text-center py-12">No signals generated. Click "Scan Now".</p> : signals.map((s: any) => (
+            {signals.length === 0 ? <p className="text-ink-300 text-sm text-center py-12">No signals generated. Click Scan Now.</p> : signals.map((s: any) => (
               <div key={s.id} className="card p-5 animate-slide-up">
                 <div className="flex items-start justify-between flex-wrap gap-3">
                   <div className="flex items-center gap-4">
                     <span className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm ${s.direction === 'long' ? 'bg-good-bg text-good' : 'bg-bad-bg text-bad'}`}>{s.direction === 'long' ? 'LONG' : 'SHORT'}</span>
                     <div>
-                      <h4 className="font-semibold text-ink-900">{s.symbol} {s.auto_executed && <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-accent/10 text-accent align-middle">auto-executed</span>}</h4>
+                      <h4 className="font-semibold text-ink-900">{s.symbol}</h4>
                       <div className="flex gap-4 text-xs text-ink-300 mt-1">
                         <span>Entry: ${s.entry_price}</span><span>SL: ${s.stop_loss}</span><span>TP: ${s.take_profit}</span>
                       </div>
@@ -210,36 +203,38 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Trades Tab */}
         {activeTab === 'trades' && (
-          <div className="space-y-2">
-            {trades.length === 0 ? <p className="text-ink-300 text-sm text-center py-12">No trades yet.</p> : trades.map((t: any) => (
-              <div key={t.id} className="card p-5 animate-slide-up">
-                <div className="flex items-center justify-between flex-wrap gap-3">
-                  <div className="flex items-center gap-4">
-                    <span className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm ${t.direction === 'long' ? 'bg-good-bg text-good' : 'bg-bad-bg text-bad'}`}>{t.direction === 'long' ? 'LONG' : 'SHORT'}</span>
-                    <div>
-                      <h4 className="font-semibold text-ink-900">{t.symbol}</h4>
-                      <div className="flex gap-4 text-xs text-ink-300 mt-1">
-                        <span>Entry: ${t.entry_price}</span>{t.exit_price && <span>Exit: ${t.exit_price}</span>}<span>Qty: {t.quantity}</span>
+          <div>
+            <div className="space-y-2">
+              {trades.length === 0 ? <p className="text-ink-300 text-sm text-center py-12">No trades yet.</p> : trades.map((t: any) => (
+                <div key={t.id} className="card p-5 animate-slide-up cursor-pointer hover:border-accent/30 transition-all" onClick={() => { setChartSymbol(t.symbol); setChartTrade(t) }}>
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-4">
+                      <span className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm ${t.direction === 'long' ? 'bg-good-bg text-good' : 'bg-bad-bg text-bad'}`}>{t.direction === 'long' ? 'LONG' : 'SHORT'}</span>
+                      <div>
+                        <h4 className="font-semibold text-ink-900">{t.symbol}</h4>
+                        <div className="flex gap-4 text-xs text-ink-300 mt-1">
+                          <span>Entry: ${t.entry_price}</span>{t.exit_price && <span>Exit: ${t.exit_price}</span>}<span>Qty: {t.quantity}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
-                      <p className={`text-lg font-bold ${(t.pnl || 0) >= 0 ? 'text-good' : 'text-bad'}`}>${t.pnl?.toFixed(2) || '0.00'}</p>
-                      {t.pnl_percentage != null && <p className={`text-xs ${(t.pnl_percentage || 0) >= 0 ? 'text-good' : 'text-bad'}`}>{t.pnl_percentage?.toFixed(1)}%</p>}
+                    <div className="flex items-center gap-3">
+                      <button onClick={(e) => { e.stopPropagation(); setChartSymbol(t.symbol); setChartTrade(t) }} className="p-2 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 transition-colors" title="View Chart"><CandlestickChart size={16} /></button>
+                      <div className="text-right">
+                        <p className={`text-lg font-bold ${(t.pnl || 0) >= 0 ? 'text-good' : 'text-bad'}`}>${t.pnl?.toFixed(2) || '0.00'}</p>
+                        {t.pnl_percentage != null && <p className={`text-xs ${(t.pnl_percentage || 0) >= 0 ? 'text-good' : 'text-bad'}`}>{t.pnl_percentage?.toFixed(1)}%</p>}
+                      </div>
+                      {t.status === 'open' && <button onClick={(e) => { e.stopPropagation(); handleCloseTrade(t.id) }} className="px-3 py-1.5 bg-bad-bg text-bad rounded-lg text-xs font-medium hover:opacity-80"><XCircle size={12} className="inline" /> Close</button>}
+                      <span className={`text-xs px-2 py-1 rounded-full capitalize ${t.status === 'open' ? 'bg-good-bg text-good' : 'bg-black/5 text-ink-300'}`}>{t.status}</span>
                     </div>
-                    {t.status === 'open' && <button onClick={() => handleCloseTrade(t.id)} className="px-3 py-1.5 bg-bad-bg text-bad rounded-lg text-xs font-medium hover:opacity-80"><XCircle size={12} className="inline" /> Close</button>}
-                    <span className={`text-xs px-2 py-1 rounded-full capitalize ${t.status === 'open' ? 'bg-good-bg text-good' : 'bg-black/5 text-ink-300'}`}>{t.status}</span>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+            <p className="text-xs text-ink-300 text-center mt-4">Click any trade to view chart 📊</p>
           </div>
         )}
 
-        {/* Deep Analysis Tab */}
         {activeTab === 'analysis' && (
           <div>
             <div className="card p-6 mb-6">
@@ -251,7 +246,6 @@ export default function DashboardPage() {
                 </button>
               </div>
             </div>
-
             {analysisResult && (
               <div className="card p-6 animate-slide-up">
                 <div className="flex items-center justify-between mb-6">
@@ -285,6 +279,27 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* Chart Modal */}
+      {chartSymbol && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setChartSymbol(null)}>
+          <div className="w-full max-w-4xl bg-[#0d0d1a] rounded-2xl p-5 border border-white/10" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h3 className="font-bold text-lg text-white">{chartSymbol}</h3>
+                {chartTrade && (
+                  <p className="text-sm text-gray-400">
+                    {chartTrade.direction === 'long' ? '🟢' : '🔴'} {chartTrade.direction.toUpperCase()} · Entry: ${chartTrade.entry_price}
+                    {chartTrade.exit_price && ` → Exit: $${chartTrade.exit_price}`} · PnL: ${chartTrade.pnl?.toFixed(2) || '0.00'}
+                  </p>
+                )}
+              </div>
+              <button onClick={() => setChartSymbol(null)} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/20 transition-all">✕</button>
+            </div>
+            <TradeChart symbol={chartSymbol} entryPrice={chartTrade?.entry_price} exitPrice={chartTrade?.exit_price} tradeType={chartTrade?.direction} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

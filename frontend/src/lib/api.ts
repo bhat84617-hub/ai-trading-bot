@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://trading-bot-api-3xkp.onrender.com'
 
 async function request(path: string, options?: RequestInit) {
   const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
@@ -27,8 +27,7 @@ export const api = {
   getWatchlist: () => request('/api/watchlist'),
   addToWatchlist: (symbol: string, timeframe = '1h') =>
     request('/api/watchlist', { method: 'POST', body: JSON.stringify({ symbol, timeframe }) }),
-  removeFromWatchlist: (id: string) =>
-    request(`/api/watchlist/${id}`, { method: 'DELETE' }),
+  removeFromWatchlist: (id: string) => request(`/api/watchlist/${id}`, { method: 'DELETE' }),
   scan: () => request('/api/scan', { method: 'POST' }),
   getSignals: (limit = 20, status?: string) =>
     request(`/api/signals?limit=${limit}${status ? `&status=${status}` : ''}`),
@@ -50,9 +49,9 @@ export const api = {
   switchBroker: (broker: string) =>
     request('/api/broker/switch', { method: 'POST', body: JSON.stringify({ broker }) }),
   getBrokers: () => request('/api/broker/list'),
-  getRiskyMode: () => request('/api/risk/risky-mode'),
-  setRiskyMode: (data: { enabled: boolean; duration_minutes?: number; min_confidence_score?: number; min_risk_reward?: number; max_risk_per_trade?: number; max_daily_loss?: number; max_drawdown?: number }) =>
-    request('/api/risk/risky-mode', { method: 'POST', body: JSON.stringify(data) }),
-}
   getCandles: (symbol: string, timeframe = '1h', limit = 100) =>
     request(`/api/market/candles/${symbol}?timeframe=${timeframe}&limit=${limit}`),
+  getRiskyMode: () => request('/api/risk/risky-mode'),
+  setRiskyMode: (data: any) =>
+    request('/api/risk/risky-mode', { method: 'POST', body: JSON.stringify(data) }),
+}

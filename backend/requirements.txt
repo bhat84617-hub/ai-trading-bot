@@ -16,4 +16,4 @@ loguru
 python-multipart
 cryptography
 pyjwt
-
+aiosqlite
